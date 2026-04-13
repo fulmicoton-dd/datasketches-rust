@@ -35,7 +35,7 @@ use crate::hll::array4::Array4;
 use crate::hll::array6::Array6;
 use crate::hll::array8::Array8;
 use crate::hll::container::Container;
-use crate::hll::coupon;
+use crate::hll::Coupon;
 use crate::hll::hash_set::HashSet;
 use crate::hll::list::List;
 use crate::hll::mode::Mode;
@@ -171,14 +171,14 @@ impl HllSketch {
     /// assert!(sketch.estimate() >= 1.0);
     /// ```
     pub fn update<T: Hash>(&mut self, value: T) {
-        let coupon = coupon(value);
+        let coupon = Coupon::from_hash(value);
         self.update_with_coupon(coupon);
     }
 
-    /// Update the sketch with a raw coupon value
+    /// Update the sketch with a coupon value.
     ///
     /// Maintains all sketch invariants including mode transitions and estimator updates.
-    pub fn update_with_coupon(&mut self, coupon: u32) {
+    pub fn update_with_coupon(&mut self, coupon: Coupon) {
         match &mut self.mode {
             Mode::List { list, hll_type } => {
                 list.update(coupon);

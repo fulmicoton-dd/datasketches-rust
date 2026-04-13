@@ -127,6 +127,55 @@ mod union;
 pub use self::sketch::HllSketch;
 pub use self::union::HllUnion;
 
+/// A coupon encodes a (slot, value) pair derived from hashing an input.
+///
+/// Format: `[value (6 bits) << 26] | [slot (26 bits)]`
+///
+/// The slot identifies an HLL register (derived from the lower bits of the hash),
+/// and the value represents the number of leading zeros plus one (from the upper bits).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Coupon(u32);
+
+impl Coupon {
+    /// Sentinel value indicating an empty coupon slot.
+    const EMPTY: Self = Coupon(0);
+
+    /// Create a coupon by hashing a value.
+    #[inline(always)]
+    pub fn from_hash(v: impl Hash) -> Self {
+        let mut hasher = MurmurHash3X64128::default();
+        v.hash(&mut hasher);
+        let (lo, hi) = hasher.finish128();
+
+        let addr26 = lo as u32 & KEY_MASK_26;
+        let lz = hi.leading_zeros();
+        let capped = lz.min(62);
+        let value = capped + 1;
+
+        Coupon((value << KEY_BITS_26) | addr26)
+    }
+
+    /// Pack slot number and value into a coupon.
+    ///
+    /// Format: [value (6 bits) << 26] | [slot (26 bits)]
+    #[inline(always)]
+    fn pack(slot: u32, value: u8) -> Self {
+        Coupon(((value as u32) << KEY_BITS_26) | (slot & KEY_MASK_26))
+    }
+
+    /// Extract slot number (low 26 bits) from coupon.
+    #[inline(always)]
+    fn slot(self) -> u32 {
+        self.0 & KEY_MASK_26
+    }
+
+    /// Extract value (upper 6 bits) from coupon.
+    #[inline(always)]
+    fn value(self) -> u8 {
+        (self.0 >> KEY_BITS_26) as u8
+    }
+}
+
 /// Target HLL type.
 ///
 /// See [module level documentation](self) for more details.
@@ -157,52 +206,18 @@ const COUPON_RSE: f64 = COUPON_RSE_FACTOR / (1 << 13) as f64;
 const RESIZE_NUMERATOR: u32 = 3; // Resize at 3/4 = 75% load factor
 const RESIZE_DENOMINATOR: u32 = 4;
 
-/// Extract slot number (low 26 bits) from coupon
-#[inline]
-fn get_slot(coupon: u32) -> u32 {
-    coupon & KEY_MASK_26
-}
 
-/// Extract value (upper 6 bits) from coupon
-#[inline]
-fn get_value(coupon: u32) -> u8 {
-    (coupon >> KEY_BITS_26) as u8
-}
-
-/// Pack slot number and value into a coupon
-///
-/// Format: [value (6 bits) << 26] | [slot (26 bits)]
-#[inline]
-fn pack_coupon(slot: u32, value: u8) -> u32 {
-    ((value as u32) << KEY_BITS_26) | (slot & KEY_MASK_26)
-}
-
-/// Generate a coupon from a hashable value.
-fn coupon<H: Hash>(v: H) -> u32 {
-    let mut hasher = MurmurHash3X64128::default();
-    v.hash(&mut hasher);
-    let (lo, hi) = hasher.finish128();
-
-    let addr26 = lo as u32 & KEY_MASK_26;
-    let lz = hi.leading_zeros();
-    let capped = lz.min(62);
-    let value = capped + 1;
-
-    (value << KEY_BITS_26) | addr26
-}
 
 #[cfg(test)]
 mod tests {
-    use crate::hll::get_slot;
-    use crate::hll::get_value;
-    use crate::hll::pack_coupon;
+    use crate::hll::Coupon;
 
     #[test]
     fn test_pack_unpack_coupon() {
         let slot = 12345u32;
         let value = 42u8;
-        let coupon = pack_coupon(slot, value);
-        assert_eq!(get_slot(coupon), slot);
-        assert_eq!(get_value(coupon), value);
+        let coupon = Coupon::pack(slot, value);
+        assert_eq!(coupon.slot(), slot);
+        assert_eq!(coupon.value(), value);
     }
 }
