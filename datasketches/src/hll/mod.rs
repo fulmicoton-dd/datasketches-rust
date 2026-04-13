@@ -138,7 +138,7 @@ pub struct Coupon(u32);
 
 impl Coupon {
     /// Sentinel value indicating an empty coupon slot.
-    const EMPTY: Self = Coupon(0);
+    pub const EMPTY: Self = Coupon(0);
 
     /// Create a coupon by hashing a value.
     #[inline(always)]
